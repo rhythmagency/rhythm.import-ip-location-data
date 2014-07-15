@@ -118,6 +118,6 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="richInstructions.Text" xml:space="preserve">
-    <value>Download the latest location data from http://dev.maxmind.com/geoip/legacy/geolite/. You will need "GeoLite City" (the ZIP CSV variant). The ZIP file contains the two CSV files you will need for the import. The table ipLocations needs to exist in the target database.</value>
+    <value>Download the latest location data from http://dev.maxmind.com/geoip/legacy/geolite/. You will need "GeoLite City" (the ZIP CSV variant). The ZIP file contains the two CSV files you will need for the import (you will need to remove the first line from each, which is copyright text and is invalid in a CSV file). The table ipLocations needs to exist in the target database.</value>
   </data>
 </root>

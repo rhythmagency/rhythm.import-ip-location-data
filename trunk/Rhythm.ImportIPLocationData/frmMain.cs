@@ -4,8 +4,11 @@
     // Namespaces.
     using System;
     using System.Collections.Generic;
+    using System.Data;
     using System.Data.SqlClient;
     using System.IO;
+    using System.Linq;
+    using System.Threading;
     using System.Windows.Forms;
 
 
@@ -95,85 +98,173 @@
             var strConnection = txtConnection.Text;
             var pathLocations = txtLocation.Text;
             var pathRanges = txtBlocks.Text;
-            var streamLocations = new StreamReader(pathLocations);
-            var readerLocations = new CsvHelper.CsvReader(streamLocations);
-            var streamRanges = new StreamReader(pathRanges);
-            var readerRanges = new CsvHelper.CsvReader(streamRanges);
-            var locations = null as object;
-            var ranges = null as object;
-            var count = 0;
 
 
-            // Read locations from CSV.
-            while (readerLocations.Read())
-            {
-                locations = AddItem(new
-                {
-                    id = readerLocations.GetField<string>(0),
-                    country = readerLocations.GetField<string>(1),
-                    region = readerLocations.GetField<string>(2),
-                    city = readerLocations.GetField<string>(3),
-                    postalCode = readerLocations.GetField<string>(4),
-                    latitude = readerLocations.GetField<string>(5),
-                    longitude = readerLocations.GetField<string>(6),
-                    metroCode = readerLocations.GetField<string>(7),
-                    areaCode = readerLocations.GetField<string>(8)
-                }, locations, out count);
-            }
-
-
-            // Read ranges from CSV.
-            while (readerRanges.Read())
-            {
-                ranges = AddItem(new
-                {
-                    startIpNum = readerRanges.GetField<string>(0),
-                    endIpNum = readerRanges.GetField<string>(1),
-                    id = readerRanges.GetField<string>(2)
-                }, ranges, out count);
-            }
-
-
-            // Store locations by their ID.
-            var byId = new Dictionary<string, object>();
-            foreach (var location in (locations as dynamic))
-            {
-                byId[location.id] = location;
-            }
-
-
-            // Store locations to database by IP range.
-            var total = (double)((ranges as dynamic).Count);
-            count = 0;
-            using(var conn = new SqlConnection(strConnection))
-            {
-                conn.Open();
-                foreach (var range in (ranges as dynamic))
+            // Process on new thread.
+            tableMain.Enabled = false;
+            var ts = new ThreadStart(() => {
+                try
                 {
 
                     // Variables.
-                    count++;
-                    var percent = count / total * 100;
-                    var location = byId[range.id];
-                    var specificity = Truthy(location.country) + Truthy(location.region) +
-                        Truthy(location.city) + Truthy(location.postalCode) +
-                        Truthy(location.metroCode) + Truthy(location.areaCode);
+                    var streamLocations = new StreamReader(pathLocations);
+                    var readerLocations = new CsvHelper.CsvReader(streamLocations);
+                    var streamRanges = new StreamReader(pathRanges);
+                    var readerRanges = new CsvHelper.CsvReader(streamRanges);
+                    var locations = null as object;
+                    var ranges = null as object;
+                    var count = 0;
 
 
-                    // Insert record.
-                    using (var cmd = new SqlCommand(CMD_INSERT, conn))
+                    // Read locations from CSV.
+                    while (readerLocations.Read())
                     {
-                        cmd.Parameters.AddWithValue("num_start", long.Parse(range.startIpNum));
-                        cmd.Parameters.AddWithValue("num_end", long.Parse(range.endIpNum));
-                        cmd.Parameters.AddWithValue("latitude", double.Parse(location.latitude));
-                        cmd.Parameters.AddWithValue("longitude", double.Parse(location.longitude));
-                        cmd.Parameters.AddWithValue("specificity", (int)specificity);
-                        cmd.ExecuteNonQuery();
+                        locations = AddItem(new
+                        {
+                            id = readerLocations.GetField<string>(0),
+                            country = readerLocations.GetField<string>(1),
+                            region = readerLocations.GetField<string>(2),
+                            city = readerLocations.GetField<string>(3),
+                            postalCode = readerLocations.GetField<string>(4),
+                            latitude = readerLocations.GetField<string>(5),
+                            longitude = readerLocations.GetField<string>(6),
+                            metroCode = readerLocations.GetField<string>(7),
+                            areaCode = readerLocations.GetField<string>(8)
+                        }, locations, out count);
+                    }
+                    HandleInvoke(() => {
+                        progressImport.Value = 10;
+                    });
+
+
+                    // Read ranges from CSV.
+                    while (readerRanges.Read())
+                    {
+                        ranges = AddItem(new
+                        {
+                            startIpNum = readerRanges.GetField<string>(0),
+                            endIpNum = readerRanges.GetField<string>(1),
+                            id = readerRanges.GetField<string>(2)
+                        }, ranges, out count);
+                    }
+                    HandleInvoke(() => {
+                        progressImport.Value = 20;
+                    });
+
+
+                    // Store locations by their ID.
+                    var byId = new Dictionary<string, object>();
+                    foreach (var location in (locations as dynamic))
+                    {
+                        byId[location.id] = location;
+                    }
+                    HandleInvoke(() => {
+                        progressImport.Value = 30;
+                    });
+
+
+                    // Store locations to database by IP range.
+                    var total = (double)((ranges as dynamic).Count);
+                    count = 0;
+                    using(var conn = new SqlConnection(strConnection))
+                    {
+
+                        // Initialize.
+                        conn.Open();
+
+
+                        // Variables.
+                        var rows = new [] { new {
+                            start = (long)0,
+                            end = (long)0,
+                            latitude = 0d,
+                            longitude = 0d,
+                            specificity = 0
+                        }}.Take(0).ToList();
+
+
+                        // Bulk insert rows.
+                        var processRows = new Action(() => {
+                            if (rows.Count == 0)
+                            {
+                                return;
+                            }
+                            var bulkCopy = new SqlBulkCopy(conn);
+                            bulkCopy.DestinationTableName = "dbo.ipLocations";
+                            var dt = new DataTable("ipLocations");
+                            dt.Columns.Add("num_start");
+                            dt.Columns.Add("num_end");
+                            dt.Columns.Add("latitude");
+                            dt.Columns.Add("longitude");
+                            dt.Columns.Add("specificity");
+                            foreach (var row in rows)
+                            {
+                                dt.Rows.Add(row.start, row.end, row.latitude, row.longitude, row.specificity);
+                            }
+                            bulkCopy.WriteToServer(dt);
+                            rows.Clear();
+                        });
+
+
+                        // Process each IP range.
+                        foreach (var range in (ranges as dynamic))
+                        {
+
+                            // Variables.
+                            count++;
+                            var percent = count / total * 100;
+                            var location = byId[range.id];
+                            var specificity = Truthy(location.country) + Truthy(location.region) +
+                                Truthy(location.city) + Truthy(location.postalCode) +
+                                Truthy(location.metroCode) + Truthy(location.areaCode);
+
+
+                            // Insert record.
+                            using (var cmd = new SqlCommand(CMD_INSERT, conn))
+                            {
+                                rows.Add(new {
+                                    start = long.Parse(range.startIpNum as string),
+                                    end = long.Parse(range.endIpNum as string),
+                                    latitude = double.Parse(location.latitude as string),
+                                    longitude = double.Parse(location.longitude as string),
+                                    specificity = (int)specificity
+                                });
+                            }
+
+
+                            // Bulk insert in batches of 10,000.
+                            if (count % 10000 == 9999)
+                            {
+                                processRows();
+                                var intPercent = Math.Min(1000, Math.Max(3, (int)(percent / 100 * 970 + 30)));
+                                HandleInvoke(() => {
+                                    progressImport.Value = intPercent;
+                                });
+                            }
+
+                        }
+
+
+                        // Finish.
+                        processRows();
+                        conn.Close();
+
                     }
 
                 }
-                conn.Close();
-            }
+                finally
+                {
+                    HandleInvoke(() => {
+                        progressImport.Value = 0;
+                        tableMain.Enabled = true;
+                    });
+                }
+            });
+
+
+            // Start thread.
+            var thread = new Thread(ts);
+            thread.Start();
 
         }
 
@@ -230,6 +321,23 @@
             else
             {
                 return null;
+            }
+        }
+
+
+        /// <summary>
+        /// Invokes an action on the UI thread.
+        /// </summary>
+        /// <param name="action">The action to invoke.</param>
+        private void HandleInvoke(Action action)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(action);
+            }
+            else
+            {
+                action();
             }
         }
 
