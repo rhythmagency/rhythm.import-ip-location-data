@@ -6,6 +6,7 @@ A Windows Forms tool to import IP location data from MaxMind's free GeoLite CSV 
 ![Client Screenshot](docs/images/client.png?raw=true "Client Screenshot")
 
 Before running this tool, ensure this table exists in your database:
+
     CREATE TABLE ipLocations
     (
         num_start bigint NOT NULL,
@@ -16,6 +17,7 @@ Before running this tool, ensure this table exists in your database:
     ) ON [PRIMARY]
 
 You can get a value for a specific IP address using this stored procedure (you'll need to do some bit shifting to convert the IP to a number first):
+
     CREATE PROCEDURE GetCoordinatesForIp
         @ipAddressNum as bigint
     AS
