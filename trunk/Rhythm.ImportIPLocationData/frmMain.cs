@@ -252,6 +252,12 @@
                     }
 
                 }
+                catch
+                {
+                    HandleInvoke(() => {
+                        MessageBox.Show("Error. Please check your inputs.");
+                    });
+                }
                 finally
                 {
                     HandleInvoke(() => {
